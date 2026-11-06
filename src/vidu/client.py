@@ -46,7 +46,8 @@ def _headers() -> dict:
 
 
 def _url(path: str) -> str:
-    return f"https://{CONF.get('host', 'api.vidu.cn')}{path}"
+    # 本部署只有海外(vda_ key 来自 platform.vidu.com); 国内 host 是 api.vidu.cn, 需要时用 config 覆盖
+    return f"https://{CONF.get('host', 'api.vidu.com')}{path}"
 
 
 async def close() -> None:
