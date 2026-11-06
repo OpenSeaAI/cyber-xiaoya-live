@@ -1130,8 +1130,12 @@ async function joinArtc(rtc){
   // viewer 只订阅不推流(上行音频走桥的 WS, 不经 RTC)
   const call = async (m, ...a)=>{ if (typeof engine[m] === "function") await engine[m](...a); };
   try{ await call("setChannelProfile", "communication"); }catch(e){}
-  try{ await call("setDefaultPublishLocalAudioStream", false); }catch(e){}
-  try{ await call("setDefaultPublishLocalVideoStream", false); }catch(e){}
+  // 2026-11-06: 不申请摄像头/麦克风 —— SDK 7.1.9 没有 setDefaultPublishLocal*(写错了名),
+  // joinChannel 会因 currentRoleCanPublish 默认走 startDefaultDevices→getUserMedia 弹授权框。
+  // 引擎级正确写法是 publishLocalAudioStream/VideoStream(false) → startDefaultCameraAndMic
+  // 检查 publishLocal*Enabled=false 就不再开采集设备。
+  try{ await call("publishLocalAudioStream", false); }catch(e){}
+  try{ await call("publishLocalVideoStream", false); }catch(e){}
   try{ await call("setDefaultSubscribeAllRemoteAudioStreams", true); }catch(e){}
   try{ await call("setDefaultSubscribeAllRemoteVideoStreams", true); }catch(e){}
   $("maskCap").textContent = "RTC 入会中(" + rtc.provider + ") · 频道 " + maskId(rtc.channel_id) + " …";
