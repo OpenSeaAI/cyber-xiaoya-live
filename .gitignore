@@ -24,6 +24,9 @@ audio/*
 assets/local/
 refs/*
 !refs/README.md
+# TTS 克隆参考素材(个人录音+逐字稿) 与 口播工作台运行时状态/产物
+assets/audio/
+koubo/
 
 # ── 环境 ───────────────────────────────────────────────
 .venv/

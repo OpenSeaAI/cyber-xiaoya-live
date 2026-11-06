@@ -22,7 +22,7 @@ import httpx
 
 from . import config as appconf
 from . import llm as llmmod
-from .tts import audio, omnivoice
+from .tts import audio, omnivoice, fishaudio
 from . import rtc_tokens
 from .vidu import client as vu
 from .vidu import signaling
@@ -54,9 +54,16 @@ class Engine:
 
     def __init__(self):
         self.llm = llmmod.LLMClient(lambda: (appconf.load().get("llm") or {}))
-        self.tts = omnivoice.OmniVoiceTTS(
-            (appconf.load().get("tts") or {}).get("omnivoice_base", ""),
-            (appconf.load().get("tts") or {}).get("omnivoice_timeout_sec", 120))
+        # TTS 引擎分派(2026-11-06): tts.engine = "fishaudio"(云端, 无GPU部署) | "omnivoice"(本机, 缺省)
+        _tts_cfg = (appconf.load().get("tts") or {})
+        if (_tts_cfg.get("engine") or "").strip().lower() in ("fishaudio", "fish_audio", "fish-audio"):
+            self.tts = fishaudio.FishAudioTTS(_tts_cfg)
+            self._tts_scan_voices = fishaudio.scan_voices
+        else:
+            self.tts = omnivoice.OmniVoiceTTS(
+                _tts_cfg.get("omnivoice_base", ""),
+                _tts_cfg.get("omnivoice_timeout_sec", 120))
+            self._tts_scan_voices = omnivoice.scan_voices
         # ---- 会话状态 ----
         self.phase = "idle"            # idle | creating | live
         self.mode = ""                 # managed | customer
@@ -244,7 +251,7 @@ class Engine:
 
     def _voices(self) -> dict:
         c = appconf.load().get("tts") or {}
-        return omnivoice.scan_voices(c.get("voices_dir", ""))
+        return self._tts_scan_voices(c.get("voices_dir", ""))
 
     def _voice_preset(self) -> dict:
         c = appconf.load().get("tts") or {}
@@ -346,7 +353,7 @@ class Engine:
                     self.tr_add("sys", "⚠ 录播只在 managed RTC 模式可用，本场是 customer 模式 → 不会录")
             # --- WS ---
             vconf = conf.get("vidu") or {}
-            sig = signaling.ComponentSignaling(vconf.get("host", "api.vidu.cn"), self.live_id,
+            sig = signaling.ComponentSignaling(vconf.get("host", "api.vidu.com"), self.live_id,
                                                vconf.get("ws_path", ""),
                                                api_key=vconf.get("api_key"))
             await sig.connect()
@@ -470,7 +477,7 @@ class Engine:
         vconf = appconf.load().get("vidu") or {}
         try:
             new = signaling.ComponentSignaling(
-                vconf.get("host", "api.vidu.cn"), self.live_id, vconf.get("ws_path", ""),
+                vconf.get("host", "api.vidu.com"), self.live_id, vconf.get("ws_path", ""),
                 api_key=vconf.get("api_key"))
             await new.connect()
             await new.conn_init(retries=6, interval=1.5)

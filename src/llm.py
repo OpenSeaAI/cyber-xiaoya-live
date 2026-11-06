@@ -153,6 +153,8 @@ class LLMClient:
         return self._conf_get() or {}
 
     def api_key(self) -> str:
+        """key 优先级: key_file > config.llm.api_key(内联) > 环境变量。
+        2026-11-06: 本机 Ollama 不需要真实密钥, config 里填任意非空占位串(如 "ollama")。"""
         c = self.conf()
         kf = (c.get("key_file") or "").strip()
         if kf:
@@ -162,7 +164,8 @@ class LLMClient:
                     return k
             except Exception:
                 pass
-        return (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
+        return ((c.get("api_key") or "").strip()
+                or (os.environ.get("DEEPSEEK_API_KEY") or "").strip())
 
     def system_prompt(self) -> str:
         """人设优先级: config.llm.persona 指向的 personas/<id>.json > llm.system_prompt。

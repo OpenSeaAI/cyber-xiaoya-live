@@ -1,12 +1,9 @@
 {
   "_说明": "复制成 config.json 后填入你自己的密钥。config.json 已在 .gitignore 里，不会被提交。",
   "vidu": {
+    "host": "api.vidu.com",
     "api_key": "vda_<在这里填你的Vidu密钥>",
-    "api_keys": [],
-    "avatar_id": "<在这里填你的数字人形象ID>",
-    "action": {
-      "library_id": ""
-    }
+    "api_keys": []
   },
   "rtc": {
     "mode": "managed",
@@ -23,6 +20,7 @@
     "model": "deepseek-flash",
     "base_url": "https://api.deepseek.com",
     "key_file": "key.txt",
+    "api_key": "",
     "system_prompt": "你是小雅，二十出头的女孩，说话自然口语化，回应简短。",
     "history_turns": 15,
     "max_tokens": 600,
@@ -31,8 +29,17 @@
     ]
   },
   "tts": {
-    "provider": "",
+    "engine": "fishaudio",
     "voice": "",
+    "voices_dir": "voices",
+    "fishaudio": {
+      "api_key": "<在这里填你的Fish Audio API Key sk-fish-...>",
+      "model": "s2.1-pro",
+      "reference_id": "",
+      "latency": "balanced",
+      "normalize": true,
+      "timeout_sec": 90
+    },
     "song_dirs": [],
     "song_files": []
   },
@@ -123,5 +130,8 @@
     "diamond_to_yinlang": 1.0,
     "diamond_to_token": 10.0,
     "credits_poll_s": 30
+  },
+  "avatar": {
+    "avatar_id": "<在这里填你的数字人形象ID>"
   }
 }

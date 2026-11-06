@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from . import config as appconf
 from .tts import audio as tts_audio
+from .tts.fishaudio import FishAudioTTS
 from .tts.omnivoice import OmniVoiceTTS, scan_voices
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -180,18 +181,35 @@ def _renumber(st: dict) -> None:
 
 
 # ── TTS ──────────────────────────────────────────────────────────────────────
-def _tts() -> OmniVoiceTTS:
+def _tts():
+    """口播合成器 = 直播链路同一个实例(engine.tts):
+    tts.engine=fishaudio → FishAudioTTS(云端), 否则 OmniVoiceTTS(本地)。"""
     global TTS
+    if ENGINE is not None:
+        return ENGINE.tts                        # 与 engine.py 的分派结果完全一致
+    c = (appconf.load().get("tts") or {})
+    if (c.get("engine") or "").strip().lower() in ("fishaudio", "fish_audio", "fish-audio"):
+        return FishAudioTTS(c)
     if TTS is None:
-        c = (appconf.load().get("tts") or {})
         TTS = OmniVoiceTTS(c.get("omnivoice_base") or "http://127.0.0.1:9877",
                            c.get("omnivoice_timeout_sec") or 120)
     return TTS
 
 
+def _scan_voices(voices_dir: str) -> dict:
+    """按 engine 同规选扫描器: fish → fishaudio.scan_voices, 否则 omnivoice.scan_voices。"""
+    if ENGINE is not None:
+        return ENGINE._tts_scan_voices(voices_dir)
+    c = (appconf.load().get("tts") or {})
+    if (c.get("engine") or "").strip().lower() in ("fishaudio", "fish_audio", "fish-audio"):
+        from .tts import fishaudio
+        return fishaudio.scan_voices(voices_dir)
+    return scan_voices(voices_dir)
+
+
 def _preset() -> dict:
     c = (appconf.load().get("tts") or {})
-    voices = scan_voices(c.get("voices_dir") or r"<语音桥目录>\voices")
+    voices = _scan_voices(c.get("voices_dir") or "voices")
     name = c.get("voice") or "tw-xiaoya"
     if name not in voices:
         raise RuntimeError(f"音色不存在: {name}")
@@ -216,12 +234,18 @@ async def _do_tts(seg: dict) -> dict:
     dst = AUDIO_DIR / name
     async with _TTS_LOCK:
         loop = asyncio.get_running_loop()
-        wav_path = await loop.run_in_executor(None, _tts()._predict_sync, text, _preset())
-        dst.write_bytes(pathlib.Path(wav_path).read_bytes())
-        try:
-            pathlib.Path(wav_path).unlink(missing_ok=True)
-        except Exception:
-            pass
+        tts = _tts()
+        if isinstance(tts, FishAudioTTS):
+            # 云端 fish: synth_pcm 直接给 s16le/24kHz/mono, 包 WAV 头落盘
+            pcm = await tts.synth_pcm(text, _preset())
+            dst.write_bytes(tts_audio.wav_bytes(pcm))
+        else:
+            wav_path = await loop.run_in_executor(None, tts._predict_sync, text, _preset())
+            dst.write_bytes(pathlib.Path(wav_path).read_bytes())
+            try:
+                pathlib.Path(wav_path).unlink(missing_ok=True)
+            except Exception:
+                pass
     take = {"file": name, "dur": round(_wav_dur(dst), 2), "ts": time.time()}
     seg.setdefault("takes", []).append(take)
     seg["selected"] = len(seg["takes"]) - 1
@@ -231,6 +255,7 @@ async def _do_tts(seg: dict) -> dict:
 # ── DeepSeek 动作指令 ────────────────────────────────────────────────────────
 async def _gen_action(text: str) -> str:
     c = (appconf.load().get("llm") or {})
+    # key 优先级与 llm.py 一致: key_file > config 内联 api_key > 环境变量
     key = ""
     kf = (c.get("key_file") or "").strip()
     if kf:
@@ -238,6 +263,8 @@ async def _gen_action(text: str) -> str:
             key = pathlib.Path(kf).read_text(encoding="utf-8").strip()
         except Exception:
             key = ""
+    if not key:
+        key = (c.get("api_key") or "").strip()      # 2026-11-06: 本机 ollama 用内联占位 key
     if not key:
         import os
         key = (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
@@ -253,9 +280,13 @@ async def _gen_action(text: str) -> str:
         "model": c.get("model") or "deepseek-chat",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.8,
-        "max_tokens": 120,
-        "thinking": {"type": "disabled"},
+        # 2026-11-06: glm:cloud 思考链也计入 max_tokens 且本 prompt 思考很长
+        # (实测 600/1500 都可能截空正文), 2000 才稳定 finish=stop; 思考走独立 reasoning 字段不干扰本函数
+        "max_tokens": 2000,
     }
+    _think = (c.get("thinking") or "").strip().lower()   # 与 llm.py 同规: 配置里有才带
+    if _think in ("enabled", "disabled"):
+        body["thinking"] = {"type": _think}
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     url = (c.get("base_url") or "https://api.deepseek.com").rstrip("/") + "/chat/completions"
     async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=120.0)) as cli:

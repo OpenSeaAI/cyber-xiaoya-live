@@ -226,12 +226,20 @@ async def _tts_health_loop():
             tts = engine.tts
             slow = tts.slow_recent(cfg["slow_ms"], cfg["slow_n"])
             recent = list(tts.recent_ms)[-cfg["slow_n"]:]
+            fish_mode = type(engine.tts).__name__ == "FishAudioTTS"
             engine.tts_health.update({
                 "vram_mb": vram,
                 "last_slow_ms": (max(recent) if recent else None),
                 "restarts": getattr(tts, "restart_count", 0),
                 "last_restart_at": getattr(tts, "last_restart_at", 0) or None,
+                "mode": "fish" if fish_mode else "omnivoice",
             })
+            if fish_mode:
+                # 云端 TTS: 只巡检记录延迟/失败数, 永远不碰本机重启链路
+                engine.tts_health["state"] = "ok" if getattr(tts, "fail_streak", 0) < 3 else "degraded"
+                engine.tts_health["note"] = "云端TTS(观测模式)"
+                await asyncio.sleep(cfg["check_sec"])
+                continue
             fails = getattr(tts, "fail_streak", 0)
             # 2026-10-29 实测: 显存 15.3GB/16.3GB 时合成仍只有 1.5s → **显存高不等于卡**,
             # 所以主判据是"连续慢/连续失败", 显存只在逼近上限(默认 15800MB)时兜底。
